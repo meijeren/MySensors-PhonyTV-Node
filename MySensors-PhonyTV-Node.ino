@@ -55,12 +55,8 @@
 #include <SPI.h>
 #include <MyConfig.h>
 #include <MySensors.h>
-
-
-
-
-
 #include <Bounce2.h>
+
 //
 #define RADIO_RESET_DELAY_TIME 20
 //
@@ -71,18 +67,15 @@
 #ifdef MY_DEBUG
 #define DEBUG_PRINT(x)   Serial.print(x)
 #define DEBUG_PRINTLN(x) Serial.println(x)
-#define SERIAL_START(x)  Serial.begin(x)
 #else
 #define DEBUG_PRINT(x)
 #define DEBUG_PRINTLN(x)
-#define SERIAL_START(x)
 #endif
-//
 
+//
 MyMessage msg(CHILD_ID, V_LIGHT);
+
 //
-
-
 byte RGB_PINS[6] = {3, 6, 5};
 // totaal: 
 // red   3 = (3) + (4) + (8)
@@ -118,7 +111,6 @@ void setup()
   // Initialize the debouncer for the button
   debouncer.attach(BUTTON_PIN);
   debouncer.interval(50);
-  //
 }
 
 void presentation()  
@@ -126,6 +118,7 @@ void presentation()
   //Send the sensor node sketch version information to the gateway
   sendSketchInfo("PhonyTV", __DATE__);
   present(CHILD_ID, S_LIGHT);
+  // Send the current state to the controller
   send(msg.set(active), true);
 }
 
