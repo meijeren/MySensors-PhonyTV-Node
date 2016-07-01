@@ -81,6 +81,7 @@
   #define CHILD_ID_HUM 2
   #define CHILD_ID_TEMP 3
   #define CHILD_ID_DIMMER 4
+  #define CHILD_ID_ALARM 5
   //
   // DHT_REPEAT_INTERVAL is the interval for reporting the same temperature/
   // humidity value to the gateway. The value is reported when changes or
@@ -127,8 +128,8 @@
     Bounce debouncer = Bounce();
   #endif
   byte oldValue = 0;
-  boolean active = false;
-  boolean oldActive = false;
+  byte active = 0;
+  byte oldActive = 0;
   int dipInterval = 10;
   int darkTime = 250;
   unsigned long currentDipTime;
@@ -140,6 +141,7 @@
   int analogLevel = 100;
   boolean timeToDip = false;
   boolean gotAck=false;
+  byte dimmerPercentage=100;
 #endif
 //
 #ifndef NO_DHT
@@ -164,14 +166,14 @@ void setup()
     for (byte color = 0; color < 3; color++)
     {
       digitalWrite(RGB_PINS[color], HIGH);
-      wait(1000);
+      wait(333);
       digitalWrite(RGB_PINS[color], LOW);
     }
-    wait(1000);
+    wait(500);
     for (byte color = 0; color < 3; color++)
     {
       analogWrite(RGB_PINS[color], HIGH);
-      wait(1000);
+      wait(333);
       analogWrite(RGB_PINS[color], LOW);
     }
     #ifndef NO_BUTTON
@@ -199,10 +201,24 @@ void presentation()
   #ifndef NO_DHT
     present(CHILD_ID_HUM, S_HUM);
     present(CHILD_ID_TEMP, S_TEMP);
+    present(CHILD_ID_DIMMER, S_DIMMER);
+    present(CHILD_ID_ALARM, S_LIGHT);
   #endif
   #ifndef NO_PHONY
     // Send the current state to the controller
-    send(msg.set(active), true);
+    {
+      MyMessage msg(CHILD_ID_PHONY, V_STATUS);
+      send(msg.set(false));
+    }
+    {
+      MyMessage msg(CHILD_ID_DIMMER, V_STATUS);
+      send(msg.set(false));
+    }
+    {
+      MyMessage msg(CHILD_ID_ALARM, V_STATUS);
+      send(msg.set(false));
+    }
+    request(CHILD_ID_DIMMER, V_DIMMER);
   #endif
 }
 
@@ -233,7 +249,7 @@ void loop()
       oldValue = value;
     #endif
     
-    if (active)
+    if (CHILD_ID_PHONY == active)
     {
       if (timeToDip == false)
       {
@@ -250,13 +266,13 @@ void loop()
           switch (color) //for the three PWM pins
           {
             case 0: // RED
-              analogWrite(RGB_PINS[color], random(128, 3 * 255 / 4));
+              analogWrite(RGB_PINS[color], random(64, 3 * 255 / 4));
               break;
             case 1: // GREEN
-              analogWrite(RGB_PINS[color], random(128, 3 * 255 / 4));
+              analogWrite(RGB_PINS[color], random(64, 3 * 255 / 4));
               break;
             case 2: // BLUE
-              analogWrite(RGB_PINS[color], random(128, 255));
+              analogWrite(RGB_PINS[color], random(64, 255));
               break;
           }
           if (dipCount > dipInterval)
@@ -286,14 +302,41 @@ void loop()
         }
       }
     }
-    else
+    else if (CHILD_ID_DIMMER == active)
     {
-      if (active != oldActive)
+      if ((millis() - previousMillis) > 1000)
       {
         for (int i = 0; i < 3; i++)
         {
-          digitalWrite(RGB_PINS[i], LOW);
+          int dim = dimmerPercentage * 256 / 100;
+          analogWrite(RGB_PINS[i], dim);
         }
+        previousMillis = millis();
+      }
+    }
+    else if (CHILD_ID_ALARM == active)
+    {
+      if ((millis() - previousMillis) > 10)
+      {
+        float out = sin(millis()/100.0) * 127.5 + 127.5;
+        analogWrite(RGB_PINS[2], out);
+        previousMillis = millis();
+      }
+    }
+    if (active != oldActive)
+    {
+      for (int i = 0; i < 3; i++)
+      {
+        digitalWrite(RGB_PINS[i], LOW);
+      }
+      if ((oldActive != 0) && (active != 0))
+      {
+        // Wijziging van de ene naar de ander sensor; rapporteer de oude sensor als uit.
+        DEBUG_PRINT(F("Report sensor "));
+        DEBUG_PRINT(oldActive);
+        DEBUG_PRINTLN(F(" als OFF"));
+        MyMessage msg(oldActive, V_STATUS);
+        send(msg.set(false));
       }
     }
     oldActive = active;
@@ -395,11 +438,31 @@ void receive(const MyMessage & message)
       DEBUG_PRINTLN(F("Receive - ack (from gateway)"));
       gotAck = true;
     }
-    if (message.type == V_LIGHT)
+    if (message.type == V_STATUS)
     {
-      active = message.getBool();
-      DEBUG_PRINT(F("Receive - change for sensor: state="));
+      if (message.getBool())
+      {
+        active = message.sensor;
+      }
+      else 
+      {
+        if (active == message.sensor)
+        {
+          active = 0;
+        }
+      }
+      DEBUG_PRINT(F("Receive - change: sensor="));
+      DEBUG_PRINT(message.sensor);
+      DEBUG_PRINT(F(" state="));
       DEBUG_PRINTLN(active ? F("ON") : F("OFF"));
+    }
+    if (message.type == V_DIMMER)
+    {
+      dimmerPercentage = message.getByte();
+      DEBUG_PRINT(F("Receive - change: sensor="));
+      DEBUG_PRINT(message.sensor);
+      DEBUG_PRINT(F(" dimmer="));
+      DEBUG_PRINTLN(dimmerPercentage);
     }
   #endif
 }
